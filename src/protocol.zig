@@ -81,7 +81,15 @@ pub const InitOut = packed struct {
     congestion_threshold: u16,
     max_write: u32,
     time_gran: u32,
-    unused: [9]u32,
+    unused1: u32 = undefined,
+    unused2: u32 = undefined,
+    unused3: u32 = undefined,
+    unused4: u32 = undefined,
+    unused5: u32 = undefined,
+    unused6: u32 = undefined,
+    unused7: u32 = undefined,
+    unused8: u32 = undefined,
+    unused9: u32 = undefined,
 };
 
 pub const GetattrIn = packed struct {
@@ -197,7 +205,12 @@ pub const Kstatfs = packed struct {
     namelen: u32,
     frsize: u32,
     padding: u32,
-    spare: [6]u32,
+    unused1: u32 = undefined,
+    unused2: u32 = undefined,
+    unused3: u32 = undefined,
+    unused4: u32 = undefined,
+    unused5: u32 = undefined,
+    unused6: u32 = undefined,
 };
 
 pub const StatfsOut = packed struct {
