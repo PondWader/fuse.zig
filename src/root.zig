@@ -1,26 +1,24 @@
 const std = @import("std");
 pub const protocol = @import("./protocol.zig");
+const fusermount3 = @import("./fusermount3.zig").fusermount3;
 
-const IN_BUF_DEFAULT_SIZE = 256;
+/// This is the minimum size that any buffers reading from the fuse file handle should be.
+pub const MIN_READ_BUFFER_SIZE = 8192;
 
+/// A handler for a fuse filesystem connection.
 pub const Fuse = struct {
     fd: i32,
-    in_buf: []u8,
-    allocator: ?std.mem.Allocator,
+    allocator: ?std.mem.Allocator = null,
 
-    pub fn open(allocator: std.mem.Allocator) !@This() {
-        const in_buf = try allocator.alloc(u8, IN_BUF_DEFAULT_SIZE);
-        var fuse = try _open("/dev/fuse", in_buf);
-        fuse.allocator = allocator;
-        return fuse;
-    }
+    /// Mounts a new fuse filesystem at the given mount point.
+    pub fn mount(allocator: std.mem.Allocator, mountPoint: []const u8) !@This() {
+        const fd = try fusermount3(allocator, mountPoint);
 
-    pub fn _open(dev_path: []const u8, buf: []u8) !@This() {
-        const fuse: Fuse = .{
-            .fd = try std.posix.open(dev_path, .{ .CLOEXEC = true, .ACCMODE = .RDWR }, 0o666),
-            .in_buf = buf,
-            .allocator = null,
+        const fuse = Fuse{
+            .fd = fd,
+            .allocator = allocator,
         };
+
         return fuse;
     }
 
@@ -28,17 +26,25 @@ pub const Fuse = struct {
     /// If `allocator` is set, all memory used will be deallocated. Therefore, it is important that you do not use the instance after calling this method.
     pub fn close(self: @This()) void {
         std.posix.close(self.fd);
-        if (self.allocator != null) {
-            self.allocator.?.free(self.in_buf);
-        }
     }
 
     /// Starts the read loop of the fuse device file handle.
+    /// The `allocator` property must not be null so a read buffer can be allocated. Otherwise, you should call `startWithBuf` and pass your own buffer.
     pub fn start(self: @This()) !void {
+        std.debug.assert(self.allocator != null);
+
+        const buf = try self.allocator.?.alignedAlloc(u8, .@"64", MIN_READ_BUFFER_SIZE);
+        defer self.allocator.?.free(buf);
+
+        return self.startWithBuf(buf);
+    }
+
+    /// Starts the read loop of the fuse device file handle.
+    /// This function takes a buffer for reading which should be at least `MIN_READ_BUFFER_SIZE` in size.
+    pub fn startWithBuf(self: @This(), buf: []u8) !void {
         while (true) {
-            std.debug.print("{}\n", .{self.fd});
-            const res = try std.posix.read(self.fd, self.in_buf);
-            self.process_buf(self.in_buf[0..res]);
+            const res = try std.posix.read(self.fd, buf);
+            self.handle_buf(buf[0..res]);
         }
     }
 
@@ -53,11 +59,17 @@ pub const Fuse = struct {
     //     self.write(std.mem.asBytes(@constCast(&init_in)), 0);
     // }
 
-    /// Pass in data read from the file descriptor.
-    /// This can be useful for using an event loop.
-    pub fn process_buf(self: @This(), buf: []u8) void {
+    /// Used to handle data read from the file descriptor.
+    /// You should use this if you wish to implement your own reader/event loop for reading from the fuse file handle. The `buf` slice should be the size of the data read.
+    pub fn handle_buf(self: @This(), buf: []u8) void {
         _ = self;
-        std.debug.print("{s}", .{buf});
+        std.debug.assert(buf.len >= @sizeOf(protocol.InHeader));
+
+        const header: *align(1) protocol.InHeader = std.mem.bytesAsValue(protocol.InHeader, buf);
+
+        std.debug.assert(header.len == buf.len);
+
+        std.debug.print("{}\n", .{header});
     }
 
     fn write(self: @This(), buf: []u8, unique: u64) void {
@@ -71,20 +83,15 @@ pub const Fuse = struct {
     }
 };
 
-pub fn bufferedPrint() !void {
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    try bw.flush(); // Don't forget to flush!
+/// Aligns
+fn alignBuf(buf: []u8, aligned_byte: usize, block_size: usize, size: usize) []u8 {
+    const buf_ptr = @intFromPtr(buf.ptr);
+    const aligned_ptr = buf_ptr + aligned_byte;
+    const misaligned = aligned_ptr & (block_size - 1);
+    const offset = block_size - misaligned;
+    return buf[offset..][0..size];
 }
 
-pub fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
-
-test "basic add functionality" {
-    try std.testing.expect(add(3, 7) == 10);
+fn directMount() !void {
+    try std.posix.open("/dev/fuse", .{ .CLOEXEC = true, .ACCMODE = .RDWR }, 0);
 }

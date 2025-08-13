@@ -1,17 +1,7 @@
 const std = @import("std");
 const posix = std.posix;
 
-// alignSlice ensures that the byte at alignedByte is aligned with the
-// given logical block size. Equivalent to Go-FUSE's alignSlice function
-fn alignSlice(buf: []u8, aligned_byte: usize, block_size: usize, size: usize) []u8 {
-    const buf_ptr = @intFromPtr(buf.ptr);
-    const aligned_ptr = buf_ptr + aligned_byte;
-    const misaligned = aligned_ptr & (block_size - 1);
-    const offset = block_size - misaligned;
-    return buf[offset..][0..size];
-}
-
-pub fn fusermount3(allocator: std.mem.Allocator, mountPoint: []const u8) !void {
+pub fn fusermount3(allocator: std.mem.Allocator, mountPoint: []const u8) !posix.fd_t {
     var arena_allocator = std.heap.ArenaAllocator.init(allocator);
     const arena = arena_allocator.allocator();
 
@@ -30,7 +20,7 @@ pub fn fusermount3(allocator: std.mem.Allocator, mountPoint: []const u8) !void {
 
     try spawn(arena, fd[1], &env_map, &.{mountPoint});
 
-    // Read message with control data from the socket (like Go's ReadMsgUnix)
+    // Read message with control data from the socket
     var data: [4]u8 = undefined;
     var control: [4 * 256]u8 align(@alignOf(usize)) = undefined;
 
@@ -51,9 +41,10 @@ pub fn fusermount3(allocator: std.mem.Allocator, mountPoint: []const u8) !void {
         .flags = 0,
     };
 
-    const n = std.os.linux.recvmsg(fd[0], &msg, 0);
-    std.debug.print("Received {} bytes of data: {any}\n", .{ n, data });
-    std.debug.print("Control message length: {}\n", .{msg.controllen});
+    var res = std.os.linux.recvmsg(fd[0], &msg, 0);
+    if (res < 0) {
+        return posix.errno(res);
+    }
 
     // Parse control message to extract file descriptor
     if (msg.controllen > 0) {
@@ -73,25 +64,17 @@ pub fn fusermount3(allocator: std.mem.Allocator, mountPoint: []const u8) !void {
             const data_offset = @sizeOf(cmsghdr);
             const data_ptr = cmsg_ptr + data_offset;
             const received_fd = @as(*const c_int, @ptrCast(@alignCast(data_ptr))).*;
-            std.debug.print("Received file descriptor: {}\n", .{received_fd});
 
-            const res = std.os.linux.fcntl(received_fd, std.os.linux.F.SETFD, std.os.linux.FD_CLOEXEC);
-            std.debug.print("{} {any}\n", .{ res, fd });
-
-            var buf: [8192 + 512]u8 = undefined;
-            const aligned_buf = alignSlice(&buf, 56, 512, 8192); // 56 = sizeof(WriteIn) from Go
-
-            while (true) {
-                const n2: isize = @bitCast(std.os.linux.read(@intCast(received_fd), aligned_buf.ptr, aligned_buf.len));
-                if (n2 < 0) {
-                    std.debug.print("{}\n", .{-n2});
-                    return;
-                } else {
-                    std.debug.print("Received {} bytes of data: {any}\n", .{ n2, aligned_buf[0..@bitCast(n2)] });
-                }
+            res = std.os.linux.fcntl(received_fd, std.os.linux.F.SETFD, std.os.linux.FD_CLOEXEC);
+            if (res < 0) {
+                return posix.errno(res);
             }
+
+            return received_fd;
         }
     }
+
+    return error.UnexpectedMessage;
 }
 
 fn spawn(
@@ -111,9 +94,9 @@ fn spawn(
     const pid_result = try posix.fork();
     if (pid_result == 0) {
         // This will run in the child
-        // try std.posix.dup2(null_fd, posix.STDIN_FILENO);
-        // try std.posix.dup2(null_fd, posix.STDOUT_FILENO);
-        // try std.posix.dup2(null_fd, posix.STDERR_FILENO);
+        try std.posix.dup2(null_fd, posix.STDIN_FILENO);
+        try std.posix.dup2(null_fd, posix.STDOUT_FILENO);
+        try std.posix.dup2(null_fd, posix.STDERR_FILENO);
         try std.posix.dup2(net_fd, 3);
 
         posix.execvpeZ_expandArg0(.expand, "fusermount3", argv_buf.ptr, envp) catch {};

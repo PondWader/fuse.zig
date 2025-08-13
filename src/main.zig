@@ -1,20 +1,15 @@
 const std = @import("std");
 const fuse_zig = @import("fuse_zig");
-const fusermount3 = @import("./fusermount3.zig");
 
 pub fn main() !void {
     std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-    try fuse_zig.bufferedPrint();
 
     var da = std.heap.DebugAllocator(.{}){};
     const allocator = da.allocator();
 
-    try fusermount3.fusermount3(allocator, "/mnt/test");
+    // try fusermount3.fusermount3(allocator, "/mnt/test");
 
-    std.debug.print("done \n", .{});
-    std.process.exit(0);
-
-    const fuse = try fuse_zig.Fuse.open(allocator);
+    const fuse = try fuse_zig.Fuse.mount(allocator, "/mnt/test");
     std.debug.print("AAAAAAAAAAa {}\n", .{fuse.fd});
     defer fuse.close();
     try fuse.start();
