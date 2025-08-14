@@ -1,6 +1,78 @@
 const std = @import("std");
 pub const protocol = @import("./protocol.zig");
 const fusermount3 = @import("./fusermount3.zig").fusermount3;
+const SliceJoiner = @import("./util/slice_joiner.zig").SliceJoiner;
+
+pub const MountOptions = struct {
+    allow_other: bool = false,
+    fs_name: ?[]const u8 = null,
+    subtype: ?[]const u8 = null,
+
+    /// Creates a string for passing to fusermount3 in the `-o` flag. The caller should free returned memory.
+    pub fn createOptionsString(self: MountOptions, allocator: std.mem.Allocator) ![]const u8 {
+        // Important: When adding more append calls be sure to increase the capacity of the SliceJoiner.
+        var joiner = SliceJoiner(u8, 5, ","){};
+
+        if (self.allow_other) {
+            joiner.append("allow_other");
+        }
+
+        var fs_name = self.fs_name;
+        var subtype = self.subtype;
+
+        defer {
+            // If the values have changed (a replacement has occured), they should be deallocated.
+            if (self.fs_name != null and self.fs_name.?.ptr != fs_name.?.ptr) {
+                allocator.free(fs_name.?);
+            }
+            if (self.subtype != null and self.subtype.?.ptr != subtype.?.ptr) {
+                allocator.free(subtype.?);
+            }
+        }
+
+        if (fs_name) |name| {
+            joiner.append("fsname=");
+            fs_name = try escapeOption(allocator, name);
+            joiner.append(name);
+        }
+        if (subtype) |st| {
+            joiner.append("subtype=");
+            subtype = try escapeOption(allocator, st);
+            joiner.append(st);
+        }
+
+        return joiner.result(allocator);
+    }
+
+    /// Escapes values for the options string. "," is replaced with "\," and "\" with "\\".
+    /// This function will only allocate if the value needs replaced and so the returned value should only be freed
+    /// if it does not equal the `value` argument.
+    fn escapeOption(allocator: std.mem.Allocator, value: []const u8) ![]const u8 {
+        var new_size: usize = value.len;
+        for (value) |c| {
+            if (c == ',' or c == '\\') {
+                new_size += 1;
+            }
+        }
+
+        // If the new size isn't any larger, there are no replacements to be made.
+        if (new_size == value.len) {
+            return value;
+        }
+
+        const new_value = try allocator.alloc(u8, new_size);
+        var i: usize = 0;
+        for (value) |c| {
+            if (c == ',' or c == '\\') {
+                new_value[i] = '\\';
+                i += 1;
+            }
+            new_value[i] = c;
+            i += 1;
+        }
+        return new_value;
+    }
+};
 
 /// This is the minimum size that any buffers reading from the fuse file handle should be.
 pub const MIN_READ_BUFFER_SIZE = 8192;
@@ -11,8 +83,12 @@ pub const Fuse = struct {
     allocator: ?std.mem.Allocator = null,
 
     /// Mounts a new fuse filesystem at the given mount point.
-    pub fn mount(allocator: std.mem.Allocator, mountPoint: []const u8) !@This() {
-        const fd = try fusermount3(allocator, mountPoint);
+    pub fn mount(allocator: std.mem.Allocator, mountPoint: []const u8, options: MountOptions) !@This() {
+        var arena_allocator = std.heap.ArenaAllocator.init(allocator);
+        const arena = arena_allocator.allocator();
+        defer arena_allocator.deinit();
+
+        const fd = try fusermount3(arena, mountPoint, options);
 
         const fuse = Fuse{
             .fd = fd,

@@ -1,10 +1,9 @@
 .{
-    .name = .fuse_zig,
+    .name = .fusez,
     .version = "0.0.0",
-    .fingerprint = 0xbc73d8ecda3fef31, // Changing this has security and trust implications.
+    .fingerprint = 0x725cf49789d10c22, // Changing this has security and trust implications.
     .minimum_zig_version = "0.15.0-dev.929+31e46be74",
-    .dependencies = .{
-    },
+    .dependencies = .{},
     .paths = .{
         "build.zig",
         "build.zig.zon",

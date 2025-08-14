@@ -1,10 +1,8 @@
 const std = @import("std");
 const posix = std.posix;
+const fusez = @import("./root.zig");
 
-pub fn fusermount3(allocator: std.mem.Allocator, mountPoint: []const u8) !posix.fd_t {
-    var arena_allocator = std.heap.ArenaAllocator.init(allocator);
-    const arena = arena_allocator.allocator();
-
+pub fn fusermount3(arena: std.mem.Allocator, mountPoint: []const u8, options: fusez.MountOptions) !posix.fd_t {
     // Open unix socket for receiving fuse file handle
     var fd: [2]posix.fd_t = undefined;
     const socketpair_res = std.os.linux.socketpair(std.posix.AF.UNIX, std.posix.SOCK.SEQPACKET, 0, &fd);
@@ -15,10 +13,12 @@ pub fn fusermount3(allocator: std.mem.Allocator, mountPoint: []const u8) !posix.
     defer posix.close(fd[1]);
 
     // Set _FUSE_COMMFD to the third file
-    var env_map = std.process.EnvMap.init(allocator);
+    var env_map = std.process.EnvMap.init(arena);
     try env_map.put("_FUSE_COMMFD", "3");
 
-    try spawn(arena, fd[1], &env_map, &.{mountPoint});
+    const opt_string = try options.createOptionsString(arena);
+
+    try spawn(arena, fd[1], &env_map, &.{ mountPoint, "-o", opt_string });
 
     // Read message with control data from the socket
     var data: [4]u8 = undefined;

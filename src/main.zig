@@ -1,5 +1,5 @@
 const std = @import("std");
-const fuse_zig = @import("fuse_zig");
+const fusez = @import("fusez");
 
 pub fn main() !void {
     std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
@@ -9,7 +9,11 @@ pub fn main() !void {
 
     // try fusermount3.fusermount3(allocator, "/mnt/test");
 
-    const fuse = try fuse_zig.Fuse.mount(allocator, "/mnt/test");
+    const fuse = try fusez.Fuse.mount(allocator, "/mnt/test", .{
+        .allow_other = true,
+        .fs_name = "my_test_fs",
+        .subtype = "fuse_test",
+    });
     std.debug.print("AAAAAAAAAAa {}\n", .{fuse.fd});
     defer fuse.close();
     try fuse.start();
