@@ -44,9 +44,10 @@ pub const Opcode = enum(u32) {
     RENAME2 = 45, // protocol version 23
     LSEEK = 46, // protocol version 24
     COPY_FILE_RANGE = 47, // protocol version 28
+    _,
 };
 
-pub const InHeader = packed struct {
+pub const HeaderIn = packed struct {
     len: u32,
 
     opcode: u32,
@@ -59,7 +60,7 @@ pub const InHeader = packed struct {
     padding: u32,
 };
 
-pub const OutHeader = packed struct {
+pub const HeaderOut = packed struct {
     len: u32,
     @"error": i32,
     unique: u64,
@@ -70,6 +71,18 @@ pub const InitIn = packed struct {
     minor: u32,
     max_readahead: u32,
     flags: u32,
+    flags2: u32,
+    unused1: u32 = undefined,
+    unused2: u32 = undefined,
+    unused3: u32 = undefined,
+    unused4: u32 = undefined,
+    unused5: u32 = undefined,
+    unused6: u32 = undefined,
+    unused7: u32 = undefined,
+    unused8: u32 = undefined,
+    unused9: u32 = undefined,
+    unused10: u32 = undefined,
+    unused11: u32 = undefined,
 };
 
 pub const InitOut = packed struct {

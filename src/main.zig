@@ -2,7 +2,7 @@ const std = @import("std");
 const fusez = @import("fusez");
 
 pub fn main() !void {
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    std.debug.print("Starting...\n", .{});
 
     var da = std.heap.DebugAllocator(.{}){};
     const allocator = da.allocator();
@@ -10,11 +10,10 @@ pub fn main() !void {
     // try fusermount3.fusermount3(allocator, "/mnt/test");
 
     const fuse = try fusez.Fuse.mount(allocator, "/mnt/test", .{
-        .allow_other = true,
+        .allow_other = false,
         .fs_name = "my_test_fs",
         .subtype = "fuse_test",
-    });
-    std.debug.print("AAAAAAAAAAa {}\n", .{fuse.fd});
+    }, &.{});
     defer fuse.close();
     try fuse.start();
     std.time.sleep(std.time.ns_per_hour);

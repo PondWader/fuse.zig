@@ -94,7 +94,7 @@ fn spawn(
     const pid_result = try posix.fork();
     if (pid_result == 0) {
         // This will run in the child
-        try std.posix.dup2(null_fd, posix.STDIN_FILENO);
+        std.posix.close(posix.STDIN_FILENO);
         try std.posix.dup2(null_fd, posix.STDOUT_FILENO);
         try std.posix.dup2(null_fd, posix.STDERR_FILENO);
         try std.posix.dup2(net_fd, 3);
@@ -108,6 +108,6 @@ fn spawn(
 
     const res = posix.waitpid(pid_result, 0);
     if (res.status != 0) {
-        return error.UnexpectedError;
+        return error.ExitError;
     }
 }
