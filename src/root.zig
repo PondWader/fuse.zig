@@ -82,6 +82,7 @@ pub const MessageHandlers = struct {
     listxattr: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
     removexattr: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
     flush: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.FlushIn) FuseResponse(void)) = .{},
+    /// init has a default handler which you may override. This handler will apply certain MountOptions so if you override it, be aware the behaviour may change.
     init: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.InitIn) FuseResponse(protocol.InitOut)) = .{ .handler = init_handler },
     opendir: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.OpenIn) FuseResponse(protocol.OpenOut)) = .{},
     readdir: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.ReadIn) FuseResponse(void)) = .{},
@@ -106,16 +107,24 @@ pub const MessageHandlers = struct {
     copy_file_range: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
 
     fn init_handler(fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.InitIn) FuseResponse(protocol.InitOut) {
+        std.debug.print("init {}\n", .{msg.major});
         if (msg.major != FUSE_KERNEL_VERSION) {
             return .{
                 .@"error" = .IO,
             };
         }
 
-        std.debug.print("{}", .{msg});
+        fuse.kernel_flags = msg.get_flags();
 
-        _ = fuse;
+        const out_flags: protocol.CapFlags = fuse.kernel_flags.?.merge(fuse.options.flags);
+        _ = out_flags;
         _ = header;
+
+        std.debug.print("{} {}\n", .{
+            msg,
+            fuse.kernel_flags.?,
+        });
+
         return .{
             .@"error" = .NOSYS,
         };
@@ -126,6 +135,7 @@ pub const MountOptions = struct {
     allow_other: bool = false,
     fs_name: ?[]const u8 = null,
     subtype: ?[]const u8 = null,
+    flags: protocol.CapFlags = .{},
 
     /// Creates a string for passing to fusermount3 in the `-o` flag. The caller should free returned memory.
     pub fn createOptionsString(self: MountOptions, allocator: std.mem.Allocator) ![]const u8 {
@@ -199,7 +209,9 @@ pub const MountOptions = struct {
 pub const Fuse = struct {
     fd: i32,
     handlers: *const MessageHandlers,
+    options: MountOptions,
     allocator: ?std.mem.Allocator = null,
+    kernel_flags: ?protocol.CapFlags = null,
 
     /// Mounts a new fuse filesystem at the given mount point.
     pub fn mount(allocator: std.mem.Allocator, mountPoint: []const u8, options: MountOptions, handlers: *const MessageHandlers) !@This() {
@@ -212,6 +224,7 @@ pub const Fuse = struct {
         const fuse = Fuse{
             .fd = fd,
             .handlers = handlers,
+            .options = options,
             .allocator = allocator,
         };
 
