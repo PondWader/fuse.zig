@@ -9,7 +9,7 @@ pub fn main() !void {
 
     // try fusermount3.fusermount3(allocator, "/mnt/test");
 
-    const fuse = try fusez.Fuse.mount(allocator, "/mnt/test", .{
+    var fuse = try fusez.Fuse.mount(allocator, "/mnt/test", .{
         .allow_other = false,
         .fs_name = "my_test_fs",
         .subtype = "fuse_test",
