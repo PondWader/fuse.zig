@@ -107,8 +107,7 @@ pub const MessageHandlers = struct {
     copy_file_range: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
 
     fn init_handler(fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.InitIn) FuseResponse(protocol.InitOut) {
-        std.debug.print("init {}\n", .{msg.major});
-        if (msg.major != FUSE_KERNEL_VERSION) {
+        if (msg.major != FUSE_KERNEL_VERSION or msg.minor < FUSE_KERNEL_MIN_MINOR_VERSION) {
             return .{
                 .@"error" = .IO,
             };
