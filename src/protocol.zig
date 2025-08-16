@@ -431,9 +431,10 @@ pub const CapFlags = packed struct(u64) {
     /// FUSE_CAP_AUTO_INVAL_DATA takes precedence.
     EXPLICIT_INVAL_DATA: bool = false,
 
-    /// init_out.map_alignment contains log2(byte alignment) for
+    /// InitOut.map_alignment contains log2(byte alignment) for
     /// foffset and moffset fields in struct
     /// fuse_setupmapping_out and fuse_removemapping_one.
+    /// NOTE: You should leave this as false if you're using the default init handler.
     MAP_ALIGNMENT: bool = false,
 
     /// Kernel supports auto-mounting directory submounts
@@ -496,8 +497,7 @@ pub const CapFlags = packed struct(u64) {
 
     /// Indicates support for passthrough mode access for read/write operations.
     ///
-    /// If this flag is set in the `capable` field of the `fuse_conn_info`
-    /// structure, then the FUSE kernel module supports redirecting read/write
+    /// If enabled, then the FUSE kernel module supports redirecting read/write
     /// operations to the backing file instead of letting them to be handled
     /// by the FUSE daemon.
     PASSTHROUGH: bool = false,

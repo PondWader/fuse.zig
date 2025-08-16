@@ -6,7 +6,8 @@ const SliceJoiner = @import("./util/slice_joiner.zig").SliceJoiner;
 /// This is the minimum size that any buffers reading from the fuse file handle should be.
 pub const MIN_READ_BUFFER_SIZE = 8192;
 const FUSE_KERNEL_VERSION = 7;
-const FUSE_KERNEL_MINOR_VERSION = 44;
+const FUSE_DAEMON_MINOR_VERSION = 44;
+const FUSE_KERNEL_MIN_MINOR_VERSION = 12;
 
 pub fn FuseResponse(comptime T: type) type {
     return union(enum) {
@@ -106,7 +107,7 @@ pub const MessageHandlers = struct {
     lseek: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
     copy_file_range: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
 
-    fn init_handler(fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.InitIn) FuseResponse(protocol.InitOut) {
+    fn init_handler(fuse: *Fuse, _: *const protocol.HeaderIn, msg: *const protocol.InitIn) FuseResponse(protocol.InitOut) {
         if (msg.major != FUSE_KERNEL_VERSION or msg.minor < FUSE_KERNEL_MIN_MINOR_VERSION) {
             return .{
                 .@"error" = .IO,
@@ -115,19 +116,51 @@ pub const MessageHandlers = struct {
 
         fuse.kernel_flags = msg.get_flags();
 
-        const out_flags: protocol.CapFlags = fuse.kernel_flags.?.merge(fuse.options.flags);
-        _ = out_flags;
-        _ = header;
+        var out_flags: protocol.CapFlags = fuse.kernel_flags.?.merge(fuse.options.flags);
+        out_flags.INIT_EXT = true;
 
         std.debug.print("{} {}\n", .{
             msg,
             fuse.kernel_flags.?,
         });
 
+        const max_pages: u16 = @truncate((fuse.options.max_write - 1) / @as(u32, std.heap.pageSize()) + 1);
+
+        var out: protocol.InitOut = .{
+            .major = FUSE_KERNEL_VERSION,
+            .minor = FUSE_DAEMON_MINOR_VERSION,
+            .max_readahead = msg.max_readahead,
+            .max_write = fuse.options.max_write,
+            .max_background = fuse.options.max_background,
+            .congestion_threshold = fuse.options.congestion_threshold,
+            .max_pages = max_pages,
+            .max_stack_depth = 0,
+            .flags = @truncate(@as(u64, @bitCast(out_flags))),
+            .flags2 = @truncate(@as(u64, @bitCast(out_flags)) >> 32),
+            .time_gran = 1000000000,
+            .map_alignment = 0,
+            .request_timeout = 0,
+        };
+
+        if (out.minor > msg.minor) {
+            out.minor = msg.minor;
+        }
+
         return .{
-            .@"error" = .NOSYS,
+            .body = out,
         };
     }
+};
+
+pub const BackingStackDepth = enum(u32) {
+    /// Backing files cannot be on a stacked filesystem, but another stacked
+    /// filesystem can be stacked over this FUSE passthrough filesystem.
+    STACKED_UNDER = 0,
+    /// Backing files may be on a stacked filesystem, such as overlayfs or
+    /// another FUSE passthrough. In this configuration, another stacked
+    /// filesystem cannot be stacked over this FUSE passthrough filesystem.
+    STACKED_OVER = 1,
+    _,
 };
 
 pub const MountOptions = struct {
@@ -135,11 +168,42 @@ pub const MountOptions = struct {
     fs_name: ?[]const u8 = null,
     subtype: ?[]const u8 = null,
     flags: protocol.CapFlags = .{},
+    /// Controls the maximum size for write requests.
+    /// This value defaults to 1 MiB. A value greater than the kernel max write doesn't make sense (generally 1 MiB).
+    max_write: u32 = 1024 * 1024,
+    /// Controls the maximum size for read requests.
+    /// A value of 0, the default, corresponds to infinite.
+    max_read: u32 = 0,
+    /// Defines the maximum number of pending background requests (read-ahead requests and async direct I/O requests).
+    ///
+    /// Read-ahead requests are generated (if max_readahead is
+    /// non-zero) by the kernel to preemptively fill its caches
+    /// when it anticipates that userspace will soon read more
+    /// data.
+    ///
+    /// Asynchronous direct I/O requests are generated if
+    /// FUSE_CAP_ASYNC_DIO is enabled and userspace submits a large
+    /// direct I/O request. In this case the kernel will internally
+    /// split it up into multiple smaller requests and submit them
+    /// to the filesystem concurrently.
+    max_background: u16 = 12,
+    /// Kernel congestion threshold parameter. If the number of pending
+    /// background requests exceeds this number (see `MountOptions.max_background`), the FUSE kernel module will
+    /// mark the filesystem as "congested". This instructs the kernel to
+    /// expect that queued requests will take some time to complete, and to
+    /// adjust its algorithms accordingly (e.g. by putting a waiting thread
+    /// to sleep instead of using a busy-loop).
+    congestion_threshold: u16 = 8,
+    /// When the PASSTHROUGH capability is enabled, this defines the maximum allowed
+    /// stacking depth of the backing files. The default is STACKED_UNDER,
+    /// meaning backing files cannot be on a stacked filesystem, but another
+    /// stacked filesystem can be stacked over this FUSE passthrough filesystem.
+    max_backing_stack_depth: BackingStackDepth = .STACKED_UNDER,
 
     /// Creates a string for passing to fusermount3 in the `-o` flag. The caller should free returned memory.
     pub fn createOptionsString(self: MountOptions, allocator: std.mem.Allocator) ![]const u8 {
         // Important: When adding more append calls be sure to increase the capacity of the SliceJoiner.
-        var joiner = SliceJoiner(u8, 7){};
+        var joiner = SliceJoiner(u8, 8){};
 
         if (self.allow_other) {
             joiner.append("allow_other,");
@@ -170,6 +234,12 @@ pub const MountOptions = struct {
             joiner.append(st);
             joiner.append(",");
         }
+
+        // Use a stack buffer to format the max_read=<size> option
+        var buf: [19]u8 = undefined;
+        @memcpy(buf[0..9], "max_read=");
+        const size = std.fmt.formatIntBuf(buf[9..], self.max_read, 10, .lower, .{});
+        joiner.append(buf[9 + size ..]);
 
         return joiner.result(allocator);
     }
@@ -218,12 +288,18 @@ pub const Fuse = struct {
         const arena = arena_allocator.allocator();
         defer arena_allocator.deinit();
 
+        var mount_options = options;
+        // Default to 3/4 of max_background as the congest_threshold if it's invalid.
+        if (mount_options.congestion_threshold > mount_options.congestion_threshold) {
+            mount_options.congestion_threshold = mount_options.max_background * 3 / 4;
+        }
+
         const fd = try fusermount3(arena, mountPoint, options);
 
         const fuse = Fuse{
             .fd = fd,
             .handlers = handlers,
-            .options = options,
+            .options = mount_options,
             .allocator = allocator,
         };
 
@@ -253,17 +329,6 @@ pub const Fuse = struct {
             self.handle_buf(buf[0..res]);
         }
     }
-
-    // pub fn init(self: *@This()) void {
-    //     const init_in = protocol.InitIn{
-    //         .major = 0,
-    //         .minor = 0,
-    //         .max_readahead = 0,
-    //         .flags = 0,
-    //     };
-
-    //     self.write(std.mem.asBytes(@constCast(&init_in)), 0);
-    // }
 
     /// Used to handle data read from the file descriptor.
     /// You should use this if you wish to implement your own reader/event loop for reading from the fuse file handle. The `buf` slice should be the size of the data read.
