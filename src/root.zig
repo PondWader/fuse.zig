@@ -14,14 +14,14 @@ pub fn FuseResponse(comptime T: type) type {
         @"error": std.posix.E,
         body: T,
 
-        inline fn write(self: @This(), fuse: *Fuse, unique: u64) void {
+        inline fn write(self: @This(), fuse: *Fuse, unique: u64) !void {
             switch (self) {
-                .@"error" => |*errno| fuse.write_response(@intFromEnum(errno.*), unique, &.{}),
+                .@"error" => |*errno| try fuse.write_response(@intFromEnum(errno.*), unique, &.{}),
                 .body => |*b| {
                     if (T == void) {
-                        fuse.write_response(0, unique, &.{});
+                        try fuse.write_response(0, unique, &.{});
                     } else {
-                        fuse.write_response(0, unique, std.mem.asBytes(b));
+                        try fuse.write_response(0, unique, std.mem.asBytes(b));
                     }
                 },
             }
@@ -33,25 +33,25 @@ pub fn FuseHandler(comptime T: type) type {
     return struct {
         handler: ?*const T = null,
 
-        inline fn use(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn) void {
+        inline fn use(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn) !void {
             if (self.handler) |handler_fn| {
-                handler_fn(fuse, header).write(fuse, header.unique);
+                try handler_fn(fuse, header).write(fuse, header.unique);
             } else {
                 const res = FuseResponse(void){
                     .@"error" = .NOSYS,
                 };
-                res.write(fuse, header.unique);
+                try res.write(fuse, header.unique);
             }
         }
 
-        inline fn use_with_body(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn, body: []u8) void {
+        inline fn use_with_body(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn, body: []u8) !void {
             if (self.handler) |handler_fn| {
-                handler_fn(fuse, header, @alignCast(@ptrCast(body))).write(fuse, header.unique);
+                try handler_fn(fuse, header, @alignCast(@ptrCast(body))).write(fuse, header.unique);
             } else {
                 const res = FuseResponse(void){
                     .@"error" = .NOSYS,
                 };
-                res.write(fuse, header.unique);
+                try res.write(fuse, header.unique);
             }
         }
     };
@@ -118,11 +118,6 @@ pub const MessageHandlers = struct {
 
         var out_flags: protocol.CapFlags = fuse.kernel_flags.?.merge(fuse.options.flags);
         out_flags.INIT_EXT = true;
-
-        std.debug.print("{} {}\n", .{
-            msg,
-            fuse.kernel_flags.?,
-        });
 
         const max_pages: u16 = @truncate((fuse.options.max_write - 1) / @as(u32, std.heap.pageSize()) + 1);
 
@@ -239,7 +234,7 @@ pub const MountOptions = struct {
         var buf: [19]u8 = undefined;
         @memcpy(buf[0..9], "max_read=");
         const size = std.fmt.formatIntBuf(buf[9..], self.max_read, 10, .lower, .{});
-        joiner.append(buf[9 + size ..]);
+        joiner.append(buf[0 .. 9 + size]);
 
         return joiner.result(allocator);
     }
@@ -326,13 +321,13 @@ pub const Fuse = struct {
     pub fn startWithBuf(self: *@This(), buf: []u8) !void {
         while (true) {
             const res = try std.posix.read(self.fd, buf);
-            self.handle_buf(buf[0..res]);
+            try self.handle_buf(buf[0..res]);
         }
     }
 
     /// Used to handle data read from the file descriptor.
     /// You should use this if you wish to implement your own reader/event loop for reading from the fuse file handle. The `buf` slice should be the size of the data read.
-    pub fn handle_buf(self: *@This(), buf: []u8) void {
+    pub fn handle_buf(self: *@This(), buf: []u8) !void {
         std.debug.assert(buf.len >= @sizeOf(protocol.HeaderIn));
 
         const header: *protocol.HeaderIn = @alignCast(std.mem.bytesAsValue(protocol.HeaderIn, buf));
@@ -345,7 +340,7 @@ pub const Fuse = struct {
         const msg_start = @sizeOf(protocol.HeaderIn);
         const body = buf[msg_start..header.len];
 
-        switch (opcode) {
+        try switch (opcode) {
             .LOOKUP => self.handlers.lookup.use(self, header),
             .FORGET => self.handlers.forget.use(self, header),
             .GETATTR => self.handlers.getattr.use_with_body(self, header, body),
@@ -395,19 +390,36 @@ pub const Fuse = struct {
                 const res = FuseResponse(void){
                     .@"error" = .NOSYS,
                 };
-                res.write(self, header.unique);
+                try res.write(self, header.unique);
             },
-        }
+        };
     }
 
-    fn write_response(self: *@This(), errno: u32, unique: u64, buf: []const u8) void {
-        const header = protocol.HeaderOut{
-            .len = @truncate(buf.len),
-            .@"error" = @intCast(errno),
+    fn write_response(self: *@This(), errno: i32, unique: u64, data: []const u8) !void {
+        var header = protocol.HeaderOut{
+            .len = @truncate(data.len + @sizeOf(protocol.HeaderOut)),
+            .@"error" = -errno,
             .unique = unique,
         };
-        _ = self.fd;
-        _ = header;
+
+        if (errno != 0) {
+            header.len -= @intCast(data.len);
+            _ = try std.posix.write(self.fd, std.mem.asBytes(&header));
+            return;
+        }
+
+        const iov = [_]std.posix.iovec_const{
+            std.posix.iovec_const{
+                .base = @constCast(std.mem.asBytes(&header)).ptr,
+                .len = @sizeOf(protocol.HeaderOut),
+            },
+            std.posix.iovec_const{
+                .base = @constCast(data.ptr),
+                .len = data.len,
+            },
+        };
+
+        _ = try std.posix.writev(self.fd, &iov);
     }
 };
 

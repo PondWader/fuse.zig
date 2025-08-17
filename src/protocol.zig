@@ -57,7 +57,7 @@ pub const HeaderIn = extern struct {
     uid: u32,
     gid: u32,
     pid: u32,
-    padding: u32,
+    _: u32,
 };
 
 pub const HeaderOut = extern struct {
@@ -93,7 +93,7 @@ pub const InitOut = extern struct {
     flags2: u32,
     max_stack_depth: u32,
     request_timeout: u16,
-    unused: [11]u16 = undefined,
+    _: [11]u16 = undefined,
 };
 
 pub const GetattrIn = extern struct {
@@ -118,7 +118,7 @@ pub const Attr = extern struct {
     gid: u32,
     rdev: u32,
     blksize: u32,
-    padding: u32,
+    _: u32,
 };
 
 pub const AttrOut = extern struct {
@@ -130,7 +130,7 @@ pub const AttrOut = extern struct {
 
 pub const AccessIn = extern struct {
     mask: u32,
-    padding: u32,
+    _: u32,
 };
 
 pub const OpenIn = extern struct {
@@ -141,7 +141,7 @@ pub const OpenIn = extern struct {
 pub const OpenOut = extern struct {
     fh: u64,
     open_flags: u32,
-    padding: u32,
+    _: u32,
 };
 
 pub const ReadIn = extern struct {
@@ -151,7 +151,7 @@ pub const ReadIn = extern struct {
     read_flags: u32,
     lock_owner: u64,
     flags: u32,
-    padding: u32,
+    _: u32,
 };
 
 pub const WriteIn = extern struct {
@@ -161,12 +161,12 @@ pub const WriteIn = extern struct {
     write_flags: u32,
     lock_owner: u64,
     flags: u32,
-    padding: u32,
+    _: u32,
 };
 
 pub const WriteOut = extern struct {
     size: u32,
-    padding: u32,
+    _: u32,
 };
 
 pub const InterruptIn = extern struct {
@@ -186,7 +186,7 @@ pub const EntryOut = extern struct {
 pub const FlushIn = extern struct {
     fh: u64,
     unused: u32,
-    padding: u32,
+    _: u32,
     lock_owner: u64,
 };
 
@@ -208,7 +208,7 @@ pub const Kstatfs = extern struct {
     bsize: u32,
     namelen: u32,
     frsize: u32,
-    padding: u32,
+    _: u32,
     unused1: u32 = undefined,
     unused2: u32 = undefined,
     unused3: u32 = undefined,
