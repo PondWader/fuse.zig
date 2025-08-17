@@ -164,8 +164,8 @@ pub const MountOptions = struct {
     subtype: ?[]const u8 = null,
     flags: protocol.CapFlags = .{},
     /// Controls the maximum size for write requests.
-    /// This value defaults to 1 MiB. A value greater than the kernel max write doesn't make sense (generally 1 MiB).
-    max_write: u32 = 1024 * 1024,
+    /// This value defaults to 256 KiB. A value greater than the kernel max write doesn't make sense (generally 1 MiB).
+    max_write: u32 = 256 * 1024,
     /// Controls the maximum size for read requests.
     /// A value of 0, the default, corresponds to infinite.
     max_read: u32 = 0,
@@ -302,15 +302,17 @@ pub const Fuse = struct {
     }
 
     /// Closes the fuse file system.
-    /// If `allocator` is set, all memory used will be deallocated. Therefore, it is important that you do not use the instance after calling this method.
     pub fn close(self: *@This()) void {
         std.posix.close(self.fd);
     }
 
     /// Starts the read loop of the fuse device file handle.
-    /// The `allocator` property must not be null so a read buffer can be allocated. Otherwise, you should call `startWithBuf` and pass your own buffer.
+    /// The `allocator` property (automatically set by calling `mount`) must not be null so a read buffer can be allocated. Otherwise, you should call `startWithBuf` and pass your own buffer.
     pub fn start(self: *@This()) !void {
-        const buf = try self.allocator.?.alignedAlloc(u8, .@"64", MIN_READ_BUFFER_SIZE);
+        // The read buffer must be at least MIN_READ_BUFFER_SIZE or the size of max write + HeaderIn + WriteIn, which is greater.
+        const buf_size = @max(MIN_READ_BUFFER_SIZE, self.options.max_write + @sizeOf(protocol.HeaderIn) + @sizeOf(protocol.WriteIn));
+
+        const buf = try self.allocator.?.alignedAlloc(u8, .@"64", buf_size);
         defer self.allocator.?.free(buf);
 
         return self.startWithBuf(buf);
