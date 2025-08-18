@@ -2,7 +2,7 @@ const std = @import("std");
 const posix = std.posix;
 const fusez = @import("./root.zig");
 
-pub fn fusermount3(arena: std.mem.Allocator, mountPoint: []const u8, options: fusez.MountOptions) !posix.fd_t {
+pub fn fusermount3(arena: std.mem.Allocator, mount_point: []const u8, options: fusez.MountOptions) !posix.fd_t {
     // Open unix socket for receiving fuse file handle
     var fd: [2]posix.fd_t = undefined;
     const socketpair_res = std.os.linux.socketpair(std.posix.AF.UNIX, std.posix.SOCK.SEQPACKET, 0, &fd);
@@ -18,7 +18,7 @@ pub fn fusermount3(arena: std.mem.Allocator, mountPoint: []const u8, options: fu
 
     const opt_string = try options.createOptionsString(arena);
 
-    try spawn(arena, fd[1], &env_map, &.{ mountPoint, "-o", opt_string });
+    try spawn(arena, fd[1], &env_map, &.{ mount_point, "-o", opt_string });
 
     // Read message with control data from the socket
     var data: [4]u8 = undefined;
@@ -41,9 +41,13 @@ pub fn fusermount3(arena: std.mem.Allocator, mountPoint: []const u8, options: fu
         .flags = 0,
     };
 
-    var res = std.os.linux.recvmsg(fd[0], &msg, 0);
+    const res = std.os.linux.recvmsg(fd[0], &msg, 0);
     if (res < 0) {
-        return posix.errno(res);
+        switch (posix.errno(res)) {
+            .CONNREFUSED => return error.MessageRecvRefused,
+            .NOMEM => return error.OutOfMemory,
+            else => return error.MessageRecvFailed,
+        }
     }
 
     // Parse control message to extract file descriptor
@@ -64,11 +68,10 @@ pub fn fusermount3(arena: std.mem.Allocator, mountPoint: []const u8, options: fu
             const data_offset = @sizeOf(cmsghdr);
             const data_ptr = cmsg_ptr + data_offset;
             const received_fd = @as(*const c_int, @ptrCast(@alignCast(data_ptr))).*;
+            errdefer posix.close(received_fd);
 
-            res = std.os.linux.fcntl(received_fd, std.os.linux.F.SETFD, std.os.linux.FD_CLOEXEC);
-            if (res < 0) {
-                return posix.errno(res);
-            }
+            // CLOEXEC isn't set by fusermount3 so we set it
+            _ = try posix.fcntl(received_fd, posix.F.SETFD, posix.FD_CLOEXEC);
 
             return received_fd;
         }
@@ -83,7 +86,7 @@ fn spawn(
     env: *std.process.EnvMap,
     args: []const []const u8,
 ) !void {
-    const null_fd = try posix.openZ("/dev/null", .{ .ACCMODE = .RDWR }, 0);
+    const null_fd = try posix.openZ("/dev/null", .{ .ACCMODE = .RDWR, .CLOEXEC = true }, 0);
 
     const envp = try std.process.createEnvironFromMap(arena, env, .{ .zig_progress_fd = null });
 

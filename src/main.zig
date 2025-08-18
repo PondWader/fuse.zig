@@ -14,7 +14,7 @@ pub fn main() !void {
         .fs_name = "my_test_fs",
         .subtype = "fuse_test",
     }, &.{});
-    defer fuse.close();
+    defer fuse.close() catch unreachable;
     try fuse.start();
     std.time.sleep(std.time.ns_per_hour);
 }

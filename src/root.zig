@@ -274,11 +274,12 @@ pub const Fuse = struct {
     fd: i32,
     handlers: *const MessageHandlers,
     options: MountOptions,
+    mount_point: []const u8,
     allocator: ?std.mem.Allocator = null,
     kernel_flags: ?protocol.CapFlags = null,
 
     /// Mounts a new fuse filesystem at the given mount point.
-    pub fn mount(allocator: std.mem.Allocator, mountPoint: []const u8, options: MountOptions, handlers: *const MessageHandlers) !@This() {
+    pub fn mount(allocator: std.mem.Allocator, mount_point: []const u8, options: MountOptions, handlers: *const MessageHandlers) !@This() {
         var arena_allocator = std.heap.ArenaAllocator.init(allocator);
         const arena = arena_allocator.allocator();
         defer arena_allocator.deinit();
@@ -289,12 +290,13 @@ pub const Fuse = struct {
             mount_options.congestion_threshold = mount_options.max_background * 3 / 4;
         }
 
-        const fd = try fusermount3(arena, mountPoint, options);
+        const fd = try fusermount3(arena, mount_point, options);
 
         const fuse = Fuse{
             .fd = fd,
             .handlers = handlers,
             .options = mount_options,
+            .mount_point = mount_point,
             .allocator = allocator,
         };
 
@@ -302,8 +304,17 @@ pub const Fuse = struct {
     }
 
     /// Closes the fuse file system.
-    pub fn close(self: *@This()) void {
+    pub fn close(self: *@This()) !void {
         std.posix.close(self.fd);
+        // TODO: Unmounting should be done with fusermount3
+        const mount_path = std.posix.toPosixPath(self.mount_point) catch unreachable;
+        const umount_res = std.os.linux.umount(&mount_path);
+        return switch (std.posix.errno(umount_res)) {
+            .SUCCESS => return,
+            .NOMEM => error.OutOfMemory,
+            .PERM => error.NoPermission,
+            else => error.UnmountFailed,
+        };
     }
 
     /// Starts the read loop of the fuse device file handle.
