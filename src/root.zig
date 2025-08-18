@@ -1,6 +1,6 @@
 const std = @import("std");
 pub const protocol = @import("./protocol.zig");
-const fusermount3 = @import("./fusermount3.zig").fusermount3;
+const fusermount3 = @import("./fusermount3.zig");
 const SliceJoiner = @import("./util/slice_joiner.zig").SliceJoiner;
 
 /// This is the minimum size that any buffers reading from the fuse file handle should be.
@@ -290,7 +290,7 @@ pub const Fuse = struct {
             mount_options.congestion_threshold = mount_options.max_background * 3 / 4;
         }
 
-        const fd = try fusermount3(arena, mount_point, options);
+        const fd = try fusermount3.mount(arena, mount_point, options);
 
         const fuse = Fuse{
             .fd = fd,
@@ -303,18 +303,17 @@ pub const Fuse = struct {
         return fuse;
     }
 
-    /// Closes the fuse file system.
-    pub fn close(self: *@This()) !void {
+    /// Closes the fuse file system. The `allocator` property (automatically set by calling `mount`) must not be null.
+    pub fn unmount(self: *@This()) !void {
         std.posix.close(self.fd);
-        // TODO: Unmounting should be done with fusermount3
-        const mount_path = std.posix.toPosixPath(self.mount_point) catch unreachable;
-        const umount_res = std.os.linux.umount(&mount_path);
-        return switch (std.posix.errno(umount_res)) {
-            .SUCCESS => return,
-            .NOMEM => error.OutOfMemory,
-            .PERM => error.NoPermission,
-            else => error.UnmountFailed,
-        };
+
+        const mount_point = std.posix.toPosixPath(self.mount_point) catch unreachable;
+
+        var arena_allocator = std.heap.ArenaAllocator.init(self.allocator.?);
+        const arena = arena_allocator.allocator();
+        defer arena_allocator.deinit();
+
+        try fusermount3.unmount(arena, &mount_point);
     }
 
     /// Starts the read loop of the fuse device file handle.

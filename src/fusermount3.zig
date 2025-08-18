@@ -2,7 +2,7 @@ const std = @import("std");
 const posix = std.posix;
 const fusez = @import("./root.zig");
 
-pub fn fusermount3(arena: std.mem.Allocator, mount_point: []const u8, options: fusez.MountOptions) !posix.fd_t {
+pub fn mount(arena: std.mem.Allocator, mount_point: []const u8, options: fusez.MountOptions) !posix.fd_t {
     // Open unix socket for receiving fuse file handle
     var fd: [2]posix.fd_t = undefined;
     const socketpair_res = std.os.linux.socketpair(std.posix.AF.UNIX, std.posix.SOCK.SEQPACKET, 0, &fd);
@@ -80,6 +80,11 @@ pub fn fusermount3(arena: std.mem.Allocator, mount_point: []const u8, options: f
     return error.UnexpectedMessage;
 }
 
+pub fn unmount(arena: std.mem.Allocator, mount_point: []const u8) !void {
+    var env_map = std.process.EnvMap.init(arena);
+    try spawn(arena, -1, &env_map, &.{ "-u", mount_point });
+}
+
 fn spawn(
     arena: std.mem.Allocator,
     net_fd: posix.fd_t,
@@ -100,7 +105,9 @@ fn spawn(
         std.posix.close(posix.STDIN_FILENO);
         try std.posix.dup2(null_fd, posix.STDOUT_FILENO);
         try std.posix.dup2(null_fd, posix.STDERR_FILENO);
-        try std.posix.dup2(net_fd, 3);
+        if (net_fd >= 0) {
+            try std.posix.dup2(net_fd, 3);
+        }
 
         posix.execvpeZ_expandArg0(.expand, "fusermount3", argv_buf.ptr, envp) catch {};
         posix.exit(1);
