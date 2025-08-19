@@ -20,6 +20,8 @@ pub fn FuseResponse(comptime T: type) type {
                 .body => |*b| {
                     if (T == void) {
                         try fuse.write_response(0, unique, &.{});
+                    } else if (std.meta.hasMethod(T, "toBuf")) {
+                        try fuse.write_response(0, unique, b.toBuf());
                     } else {
                         try fuse.write_response(0, unique, std.mem.asBytes(b));
                     }
@@ -86,7 +88,7 @@ pub const MessageHandlers = struct {
     /// init has a default handler which you may override. This handler will apply certain MountOptions so if you override it, be aware the behaviour may change.
     init: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.InitIn) FuseResponse(protocol.InitOut)) = .{ .handler = init_handler },
     opendir: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.OpenIn) FuseResponse(protocol.OpenOut)) = .{},
-    readdir: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.ReadIn) FuseResponse(void)) = .{},
+    readdir: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.ReadIn) FuseResponse(protocol.DirEntryList)) = .{},
     releasedir: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.ReleaseIn) FuseResponse(void)) = .{},
     fsyncdir: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
     getlk: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
@@ -414,7 +416,7 @@ pub const Fuse = struct {
             .unique = unique,
         };
 
-        if (errno != 0) {
+        if (errno != 0 or data.len == 0) {
             header.len -= @intCast(data.len);
             _ = try std.posix.write(self.fd, std.mem.asBytes(&header));
             return;

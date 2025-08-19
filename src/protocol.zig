@@ -104,33 +104,33 @@ pub const GetattrIn = extern struct {
 
 pub const Attr = extern struct {
     ino: u64,
-    size: u64,
-    blocks: u64,
-    atime: u64,
-    mtime: u64,
-    ctime: u64,
-    atimensec: u32,
-    mtimensec: u32,
-    ctimensec: u32,
+    size: u64 = 0,
+    blocks: u64 = 0,
+    atime: u64 = 0,
+    mtime: u64 = 0,
+    ctime: u64 = 0,
+    atimensec: u32 = 0,
+    mtimensec: u32 = 0,
+    ctimensec: u32 = 0,
     mode: u32,
-    nlink: u32,
-    uid: u32,
-    gid: u32,
-    rdev: u32,
-    blksize: u32,
-    _: u32,
+    nlink: u32 = 0,
+    uid: u32 = 0,
+    gid: u32 = 0,
+    rdev: u32 = 0,
+    blksize: u32 = 0,
+    _: u32 = undefined,
 };
 
 pub const AttrOut = extern struct {
     attr_valid: u64,
     attr_valid_nsec: u32,
-    dummy: u32,
+    dummy: u32 = 0,
     attr: Attr,
 };
 
 pub const AccessIn = extern struct {
     mask: u32,
-    _: u32,
+    _: u32 = undefined,
 };
 
 pub const OpenIn = extern struct {
@@ -141,7 +141,7 @@ pub const OpenIn = extern struct {
 pub const OpenOut = extern struct {
     fh: u64,
     open_flags: u32,
-    _: u32,
+    _: u32 = undefined,
 };
 
 pub const ReadIn = extern struct {
@@ -151,7 +151,7 @@ pub const ReadIn = extern struct {
     read_flags: u32,
     lock_owner: u64,
     flags: u32,
-    _: u32,
+    _: u32 = undefined,
 };
 
 pub const WriteIn = extern struct {
@@ -161,16 +161,26 @@ pub const WriteIn = extern struct {
     write_flags: u32,
     lock_owner: u64,
     flags: u32,
-    _: u32,
+    _: u32 = undefined,
 };
 
 pub const WriteOut = extern struct {
     size: u32,
-    _: u32,
+    _: u32 = undefined,
 };
 
 pub const InterruptIn = extern struct {
     unique: u64,
+};
+
+pub const LookupIn = struct {
+    name: [:0]const u8,
+
+    pub fn fromBuf(buf: []const u8) @This() {
+        return .{
+            .name = @ptrCast(buf),
+        };
+    }
 };
 
 pub const EntryOut = extern struct {
@@ -186,7 +196,7 @@ pub const EntryOut = extern struct {
 pub const FlushIn = extern struct {
     fh: u64,
     unused: u32,
-    _: u32,
+    _: u32 = undefined,
     lock_owner: u64,
 };
 
@@ -208,13 +218,7 @@ pub const Kstatfs = extern struct {
     bsize: u32,
     namelen: u32,
     frsize: u32,
-    _: u32,
-    unused1: u32 = undefined,
-    unused2: u32 = undefined,
-    unused3: u32 = undefined,
-    unused4: u32 = undefined,
-    unused5: u32 = undefined,
-    unused6: u32 = undefined,
+    _: [7]u32 = undefined,
 };
 
 pub const StatfsOut = extern struct {
