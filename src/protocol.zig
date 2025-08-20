@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const Opcode = enum(u32) {
     LOOKUP = 1,
     FORGET = 2,
@@ -178,14 +180,14 @@ pub const LookupIn = struct {
 
     pub fn fromBuf(buf: []const u8) @This() {
         return .{
-            .name = @ptrCast(buf),
+            .name = @ptrCast(buf[0 .. buf.len - 1]),
         };
     }
 };
 
 pub const EntryOut = extern struct {
     nodeid: u64,
-    generation: u64,
+    generation: u64 = 0,
     entry_valid: u64,
     attr_valid: u64,
     entry_valid_nsec: u32,
@@ -223,6 +225,49 @@ pub const Kstatfs = extern struct {
 
 pub const StatfsOut = extern struct {
     st: Kstatfs,
+};
+
+pub const DirEntry = extern struct {
+    ino: u64,
+    offset: u64 = 0,
+    name_len: u32 = 0,
+    type: u32 = 0,
+};
+
+pub const DirEntryList = extern struct {
+    offset: u64 = 0,
+    buf: [8192]u8 = undefined,
+    size: usize = 0,
+
+    pub fn addEntry(self: *DirEntryList, entry: DirEntry, name: []const u8) bool {
+        if (entry.offset <= self.offset) return false;
+
+        var item = entry;
+
+        item.name_len = @truncate(name.len);
+
+        // Padding to align to 64 bits
+        const padding = (8 - name.len & 7) & 7;
+
+        // No more entries can be added if it will overflow the buffer
+        if (self.size + @sizeOf(DirEntry) + name.len + padding > self.buf.len) {
+            return false;
+        }
+
+        @memcpy(self.buf[self.size .. self.size + @sizeOf(DirEntry)], std.mem.asBytes(&item));
+        self.size += @sizeOf(DirEntry);
+        @memcpy(self.buf[self.size .. self.size + name.len], name);
+        self.size += name.len;
+        // Apply padding to align to 64 bits
+        @memset(self.buf[self.size .. self.size + padding], 0);
+        self.size += padding;
+
+        return true;
+    }
+
+    pub fn toBuf(self: *const DirEntryList) []u8 {
+        return @alignCast(@constCast(self.buf[0..self.size]));
+    }
 };
 
 /// Flags are used to declare capabilities of the fuse filesystem daemon.

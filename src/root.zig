@@ -21,7 +21,7 @@ pub fn FuseResponse(comptime T: type) type {
                     if (T == void) {
                         try fuse.write_response(0, unique, &.{});
                     } else if (std.meta.hasMethod(T, "toBuf")) {
-                        try fuse.write_response(0, unique, b.toBuf());
+                        try fuse.write_response(0, unique, b.*.toBuf());
                     } else {
                         try fuse.write_response(0, unique, std.mem.asBytes(b));
                     }
@@ -31,9 +31,14 @@ pub fn FuseResponse(comptime T: type) type {
     };
 }
 
-pub fn FuseHandler(comptime T: type) type {
+pub fn FuseHandler(comptime Request: type, comptime Response: type) type {
+    comptime var handler: type = fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(Response);
+    if (Request != void) {
+        handler = fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const Request) FuseResponse(Response);
+    }
+
     return struct {
-        handler: ?*const T = null,
+        handler: ?*const handler = null,
 
         inline fn use(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn) !void {
             if (self.handler) |handler_fn| {
@@ -48,7 +53,11 @@ pub fn FuseHandler(comptime T: type) type {
 
         inline fn use_with_body(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn, body: []u8) !void {
             if (self.handler) |handler_fn| {
-                try handler_fn(fuse, header, @alignCast(@ptrCast(body))).write(fuse, header.unique);
+                if (std.meta.hasFn(Request, "fromBuf")) {
+                    try handler_fn(fuse, header, &Request.fromBuf(body)).write(fuse, header.unique);
+                } else {
+                    try handler_fn(fuse, header, @alignCast(@ptrCast(body))).write(fuse, header.unique);
+                }
             } else {
                 const res = FuseResponse(void){
                     .@"error" = .NOSYS,
@@ -62,52 +71,52 @@ pub fn FuseHandler(comptime T: type) type {
 /// Struct used to define the handlers for different message types.
 /// Please note, pointers should be dereferenced if the value is going to be used after returning as the previous data will be overwritten.
 pub const MessageHandlers = struct {
-    lookup: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    forget: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    getattr: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.GetattrIn) FuseResponse(protocol.AttrOut)) = .{},
-    setattr: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(protocol.AttrOut)) = .{},
-    readlink: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    symlink: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(protocol.EntryOut)) = .{},
-    mknod: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(protocol.EntryOut)) = .{},
-    mkdir: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(protocol.EntryOut)) = .{},
-    unlink: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    rmdir: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    rename: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    link: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(protocol.EntryOut)) = .{},
-    open: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.OpenIn) FuseResponse(protocol.OpenOut)) = .{},
-    read: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.ReadIn) FuseResponse(void)) = .{},
-    write: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.WriteIn) FuseResponse(protocol.WriteOut)) = .{},
-    statfs: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(protocol.StatfsOut)) = .{},
-    release: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.ReleaseIn) FuseResponse(void)) = .{},
-    fsync: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    setxattr: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    getxattr: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    listxattr: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    removexattr: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    flush: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.FlushIn) FuseResponse(void)) = .{},
+    lookup: FuseHandler(protocol.LookupIn, protocol.EntryOut) = .{},
+    forget: FuseHandler(void, void) = .{},
+    getattr: FuseHandler(protocol.GetattrIn, protocol.AttrOut) = .{},
+    setattr: FuseHandler(void, protocol.AttrOut) = .{},
+    readlink: FuseHandler(void, void) = .{},
+    symlink: FuseHandler(void, protocol.EntryOut) = .{},
+    mknod: FuseHandler(void, protocol.EntryOut) = .{},
+    mkdir: FuseHandler(void, protocol.EntryOut) = .{},
+    unlink: FuseHandler(void, void) = .{},
+    rmdir: FuseHandler(void, void) = .{},
+    rename: FuseHandler(void, void) = .{},
+    link: FuseHandler(void, protocol.EntryOut) = .{},
+    open: FuseHandler(protocol.OpenIn, protocol.OpenOut) = .{},
+    read: FuseHandler(protocol.ReadIn, void) = .{},
+    write: FuseHandler(protocol.WriteIn, protocol.WriteOut) = .{},
+    statfs: FuseHandler(void, protocol.StatfsOut) = .{},
+    release: FuseHandler(protocol.ReleaseIn, void) = .{},
+    fsync: FuseHandler(void, void) = .{},
+    setxattr: FuseHandler(void, void) = .{},
+    getxattr: FuseHandler(void, void) = .{},
+    listxattr: FuseHandler(void, void) = .{},
+    removexattr: FuseHandler(void, void) = .{},
+    flush: FuseHandler(protocol.FlushIn, void) = .{},
     /// init has a default handler which you may override. This handler will apply certain MountOptions so if you override it, be aware the behaviour may change.
-    init: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.InitIn) FuseResponse(protocol.InitOut)) = .{ .handler = init_handler },
-    opendir: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.OpenIn) FuseResponse(protocol.OpenOut)) = .{},
-    readdir: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.ReadIn) FuseResponse(protocol.DirEntryList)) = .{},
-    releasedir: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.ReleaseIn) FuseResponse(void)) = .{},
-    fsyncdir: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    getlk: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    setlk: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    setlkw: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    access: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.AccessIn) FuseResponse(void)) = .{},
-    create: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.OpenIn) FuseResponse(protocol.OpenOut)) = .{},
-    interrupt: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.InterruptIn) FuseResponse(void)) = .{},
-    bmap: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    destroy: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    ioctl: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    poll: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    notify_reply: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    batch_forget: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    fallocate: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    readdirplus: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const protocol.ReadIn) FuseResponse(void)) = .{},
-    rename2: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    lseek: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
-    copy_file_range: FuseHandler(fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(void)) = .{},
+    init: FuseHandler(protocol.InitIn, protocol.InitOut) = .{ .handler = init_handler },
+    opendir: FuseHandler(protocol.OpenIn, protocol.OpenOut) = .{},
+    readdir: FuseHandler(protocol.ReadIn, protocol.DirEntryList) = .{},
+    releasedir: FuseHandler(protocol.ReleaseIn, void) = .{},
+    fsyncdir: FuseHandler(void, void) = .{},
+    getlk: FuseHandler(void, void) = .{},
+    setlk: FuseHandler(void, void) = .{},
+    setlkw: FuseHandler(void, void) = .{},
+    access: FuseHandler(protocol.AccessIn, void) = .{},
+    create: FuseHandler(protocol.OpenIn, protocol.OpenOut) = .{},
+    interrupt: FuseHandler(protocol.InterruptIn, void) = .{},
+    bmap: FuseHandler(void, void) = .{},
+    destroy: FuseHandler(void, void) = .{},
+    ioctl: FuseHandler(void, void) = .{},
+    poll: FuseHandler(void, void) = .{},
+    notify_reply: FuseHandler(void, void) = .{},
+    batch_forget: FuseHandler(void, void) = .{},
+    fallocate: FuseHandler(void, void) = .{},
+    readdirplus: FuseHandler(protocol.ReadIn, void) = .{},
+    rename2: FuseHandler(void, void) = .{},
+    lseek: FuseHandler(void, void) = .{},
+    copy_file_range: FuseHandler(void, void) = .{},
 
     fn init_handler(fuse: *Fuse, _: *const protocol.HeaderIn, msg: *const protocol.InitIn) FuseResponse(protocol.InitOut) {
         if (msg.major != FUSE_KERNEL_VERSION or msg.minor < FUSE_KERNEL_MIN_MINOR_VERSION) {
@@ -348,14 +357,12 @@ pub const Fuse = struct {
 
         std.debug.assert(header.len == buf.len);
 
-        std.debug.print("{}\n", .{header});
-
         const opcode: protocol.Opcode = @enumFromInt(header.opcode);
         const msg_start = @sizeOf(protocol.HeaderIn);
         const body = buf[msg_start..header.len];
 
         try switch (opcode) {
-            .LOOKUP => self.handlers.lookup.use(self, header),
+            .LOOKUP => self.handlers.lookup.use_with_body(self, header, body),
             .FORGET => self.handlers.forget.use(self, header),
             .GETATTR => self.handlers.getattr.use_with_body(self, header, body),
             .SETATTR => self.handlers.setattr.use(self, header),
