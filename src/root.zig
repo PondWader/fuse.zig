@@ -9,22 +9,30 @@ const FUSE_KERNEL_VERSION = 7;
 const FUSE_DAEMON_MINOR_VERSION = 44;
 const FUSE_KERNEL_MIN_MINOR_VERSION = 12;
 
+pub const WriteError = std.posix.WriteError;
+
 pub fn FuseResponse(comptime T: type) type {
     return union(enum) {
         @"error": std.posix.E,
         body: T,
+        result: WriteError!void,
 
         inline fn write(self: @This(), fuse: *Fuse, unique: u64) !void {
             switch (self) {
-                .@"error" => |*errno| try fuse.write_response(@intFromEnum(errno.*), unique, &.{}),
+                .@"error" => |*errno| try fuse.write_response(errno.*, unique, &.{}),
                 .body => |*b| {
                     if (T == void) {
-                        try fuse.write_response(0, unique, &.{});
+                        try fuse.write_response(.SUCCESS, unique, &.{});
                     } else if (std.meta.hasMethod(T, "toBuf")) {
-                        try fuse.write_response(0, unique, b.*.toBuf());
+                        try fuse.write_response(.SUCCESS, unique, b.*.toBuf());
+                    } else if (T == []u8 or T == []const u8) {
+                        try fuse.write_response(.SUCCESS, unique, b.*);
                     } else {
-                        try fuse.write_response(0, unique, std.mem.asBytes(b));
+                        try fuse.write_response(.SUCCESS, unique, std.mem.asBytes(b));
                     }
+                },
+                .result => |*e| {
+                    return e.*;
                 },
             }
         }
@@ -84,7 +92,7 @@ pub const MessageHandlers = struct {
     rename: FuseHandler(void, void) = .{},
     link: FuseHandler(void, protocol.EntryOut) = .{},
     open: FuseHandler(protocol.OpenIn, protocol.OpenOut) = .{},
-    read: FuseHandler(protocol.ReadIn, void) = .{},
+    read: FuseHandler(protocol.ReadIn, []const u8) = .{},
     write: FuseHandler(protocol.WriteIn, protocol.WriteOut) = .{},
     statfs: FuseHandler(void, protocol.StatfsOut) = .{},
     release: FuseHandler(protocol.ReleaseIn, void) = .{},
@@ -170,7 +178,16 @@ pub const BackingStackDepth = enum(u32) {
 };
 
 pub const MountOptions = struct {
+    /// Allows other users to access the filesystem. If enabling this, you should probably enable `default_permissions` due to https://github.com/libfuse/libfuse/issues/15.
     allow_other: bool = false,
+    /// This option instructs the kernel to perform its own permission check
+    /// instead of deferring all permission checking to the
+    /// filesystem. The check by the kernel is done in addition to any
+    /// permission checks by the filesystem, and both have to succeed for an
+    /// operation to be allowed. The kernel performs a standard UNIX permission
+    /// check (based on mode bits and ownership of the directory entry, and
+    /// uid/gid of the client).
+    default_permissions: bool = false,
     fs_name: ?[]const u8 = null,
     subtype: ?[]const u8 = null,
     flags: protocol.CapFlags = .{},
@@ -209,10 +226,13 @@ pub const MountOptions = struct {
     /// Creates a string for passing to fusermount3 in the `-o` flag. The caller should free returned memory.
     pub fn createOptionsString(self: MountOptions, allocator: std.mem.Allocator) ![]const u8 {
         // Important: When adding more append calls be sure to increase the capacity of the SliceJoiner.
-        var joiner = SliceJoiner(u8, 8){};
+        var joiner = SliceJoiner(u8, 9){};
 
         if (self.allow_other) {
             joiner.append("allow_other,");
+        }
+        if (self.default_permissions) {
+            joiner.append("default_permissions,");
         }
 
         var fs_name = self.fs_name;
@@ -416,7 +436,9 @@ pub const Fuse = struct {
         };
     }
 
-    fn write_response(self: *@This(), errno: i32, unique: u64, data: []const u8) !void {
+    pub fn write_response(self: *@This(), err: std.posix.E, unique: u64, data: []const u8) WriteError!void {
+        const errno = @as(i32, @intFromEnum(err));
+
         var header = protocol.HeaderOut{
             .len = @truncate(data.len + @sizeOf(protocol.HeaderOut)),
             .@"error" = -errno,
