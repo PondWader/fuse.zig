@@ -13,8 +13,11 @@ pub const WriteError = std.posix.WriteError;
 
 pub fn FuseResponse(comptime T: type) type {
     return union(enum) {
+        /// Provides a status code to return with no body. If you need to respond without a body but a successful status you can return with `@"error"` set to `.SUCCESS`.
         @"error": std.posix.E,
+        /// Provides the required body to respond with upon successful processing of the request.
         body: T,
+        /// Should be returned with the value from `Fuse.write_response` if it has been called by the handler to directly write the response.
         result: WriteError!void,
 
         inline fn write(self: @This(), fuse: *Fuse, unique: u64) !void {
