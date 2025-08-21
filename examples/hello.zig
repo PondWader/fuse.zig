@@ -108,9 +108,9 @@ fn readdir(_: *fusez.Fuse, header: *const fusez.protocol.HeaderIn, msg: *const f
     }, "hello");
     _ = dir_list.addEntry(.{
         .ino = 3,
-        .name_len = 5,
+        .name_len = 4,
         .type = 0,
-        .offset = 3,
+        .offset = 4,
     }, "name");
 
     return .{
@@ -192,6 +192,26 @@ fn read(fuse: *fusez.Fuse, header: *const fusez.protocol.HeaderIn, _: *const fus
     }
 }
 
-fn write(_: *fusez.Fuse, _: *const fusez.protocol.HeaderIn, _: *const fusez.protocol.WriteIn) fusez.FuseResponse(fusez.protocol.WriteOut) {
-    return .{ .@"error" = .NOSYS };
+fn write(_: *fusez.Fuse, header: *const fusez.protocol.HeaderIn, req: *const fusez.WriteRequest) fusez.FuseResponse(fusez.protocol.WriteOut) {
+    if (header.nodeid != 3) return .{ .@"error" = .ROFS };
+
+    var new_name = req.payload[0..req.msg.size];
+    new_name = std.mem.trim(u8, new_name, &.{ ' ', '\t', '\n' });
+
+    const write_size = new_name.len;
+    const write_start = req.msg.offset;
+    const write_end = write_start + write_size;
+
+    if (write_end > name_buf.len) {
+        return .{ .@"error" = .NOSPC };
+    }
+
+    @memcpy(name_buf[write_start..write_end], new_name[write_start..write_end]);
+    name_len = write_end;
+
+    return .{
+        .body = .{
+            .size = @intCast(write_size),
+        },
+    };
 }
