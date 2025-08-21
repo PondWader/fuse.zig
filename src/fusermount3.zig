@@ -1,6 +1,6 @@
 const std = @import("std");
 const posix = std.posix;
-const fusez = @import("./root.zig");
+const fusez = @import("./fuse.zig");
 
 pub fn mount(arena: std.mem.Allocator, mount_point: []const u8, options: fusez.MountOptions) !posix.fd_t {
     // Open unix socket for receiving fuse file handle
