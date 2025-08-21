@@ -42,6 +42,39 @@ pub fn FuseResponse(comptime T: type) type {
     };
 }
 
+pub fn FuseHandlerNoResponse(comptime Request: type) type {
+    comptime var handler: type = fn (fuse: *Fuse, header: *const protocol.HeaderIn) void;
+    if (Request != void) {
+        handler = fn (fuse: *Fuse, header: *const protocol.HeaderIn, msg: *const Request) void;
+    }
+
+    return struct {
+        handler: ?*const handler = null,
+
+        inline fn use(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn) void {
+            if (self.handler) |handler_fn| {
+                handler_fn(fuse, header);
+            }
+        }
+
+        inline fn use_with_body(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn, body: []u8) void {
+            if (self.handler) |handler_fn| {
+                if (std.meta.hasFn(Request, "fromBuf")) {
+                    handler_fn(fuse, header, &Request.fromBuf(body));
+                } else {
+                    handler_fn(fuse, header, @alignCast(@ptrCast(body)));
+                }
+            }
+        }
+
+        inline fn use_with_request(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn, request: *const Request) void {
+            if (self.handler) |handler_fn| {
+                handler_fn(fuse, header, request);
+            }
+        }
+    };
+}
+
 pub fn FuseHandler(comptime Request: type, comptime Response: type) type {
     comptime var handler: type = fn (fuse: *Fuse, header: *const protocol.HeaderIn) FuseResponse(Response);
     if (Request != void) {
@@ -53,37 +86,53 @@ pub fn FuseHandler(comptime Request: type, comptime Response: type) type {
 
         inline fn use(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn) !void {
             if (self.handler) |handler_fn| {
-                try handler_fn(fuse, header).write(fuse, header.unique);
+                return handler_fn(fuse, header).write(fuse, header.unique);
             } else {
                 const res = FuseResponse(void){
                     .@"error" = .NOSYS,
                 };
-                try res.write(fuse, header.unique);
+                return res.write(fuse, header.unique);
             }
         }
 
         inline fn use_with_body(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn, body: []u8) !void {
             if (self.handler) |handler_fn| {
                 if (std.meta.hasFn(Request, "fromBuf")) {
-                    try handler_fn(fuse, header, &Request.fromBuf(body)).write(fuse, header.unique);
+                    return handler_fn(fuse, header, &Request.fromBuf(body)).write(fuse, header.unique);
                 } else {
-                    try handler_fn(fuse, header, @alignCast(@ptrCast(body))).write(fuse, header.unique);
+                    return handler_fn(fuse, header, @alignCast(@ptrCast(body))).write(fuse, header.unique);
                 }
             } else {
                 const res = FuseResponse(void){
                     .@"error" = .NOSYS,
                 };
-                try res.write(fuse, header.unique);
+                return res.write(fuse, header.unique);
+            }
+        }
+
+        inline fn use_with_request(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn, request: *const Request) !void {
+            if (self.handler) |handler_fn| {
+                return handler_fn(fuse, header, request).write(fuse, header.unique);
+            } else {
+                const res = FuseResponse(void){
+                    .@"error" = .NOSYS,
+                };
+                return res.write(fuse, header.unique);
             }
         }
     };
 }
 
+pub const WriteRequest = struct {
+    msg: *protocol.WriteIn,
+    payload: []const u8,
+};
+
 /// Struct used to define the handlers for different message types.
 /// Please note, pointers should be dereferenced if the value is going to be used after returning as the previous data will be overwritten.
 pub const MessageHandlers = struct {
     lookup: FuseHandler(protocol.LookupIn, protocol.EntryOut) = .{},
-    forget: FuseHandler(void, void) = .{},
+    forget: FuseHandlerNoResponse(void) = .{},
     getattr: FuseHandler(protocol.GetattrIn, protocol.AttrOut) = .{},
     setattr: FuseHandler(void, protocol.AttrOut) = .{},
     readlink: FuseHandler(void, void) = .{},
@@ -96,7 +145,7 @@ pub const MessageHandlers = struct {
     link: FuseHandler(void, protocol.EntryOut) = .{},
     open: FuseHandler(protocol.OpenIn, protocol.OpenOut) = .{},
     read: FuseHandler(protocol.ReadIn, []const u8) = .{},
-    write: FuseHandler(protocol.WriteIn, protocol.WriteOut) = .{},
+    write: FuseHandler(WriteRequest, protocol.WriteOut) = .{},
     statfs: FuseHandler(void, protocol.StatfsOut) = .{},
     release: FuseHandler(protocol.ReleaseIn, void) = .{},
     fsync: FuseHandler(void, void) = .{},
@@ -122,7 +171,7 @@ pub const MessageHandlers = struct {
     ioctl: FuseHandler(void, void) = .{},
     poll: FuseHandler(void, void) = .{},
     notify_reply: FuseHandler(void, void) = .{},
-    batch_forget: FuseHandler(void, void) = .{},
+    batch_forget: FuseHandlerNoResponse(void) = .{},
     fallocate: FuseHandler(void, void) = .{},
     readdirplus: FuseHandler(protocol.ReadIn, void) = .{},
     rename2: FuseHandler(void, void) = .{},
@@ -399,7 +448,13 @@ pub const Fuse = struct {
             .LINK => self.handlers.link.use(self, header),
             .OPEN => self.handlers.open.use_with_body(self, header, body),
             .READ => self.handlers.read.use_with_body(self, header, body),
-            .WRITE => self.handlers.write.use_with_body(self, header, body),
+            .WRITE => blk: {
+                const request: WriteRequest = .{
+                    .msg = @alignCast(@ptrCast(body)),
+                    .payload = buf[@sizeOf(protocol.HeaderIn) + @sizeOf(protocol.WriteIn) ..],
+                };
+                break :blk self.handlers.write.use_with_request(self, header, &request);
+            },
             .STATFS => self.handlers.statfs.use(self, header),
             .RELEASE => self.handlers.release.use_with_body(self, header, body),
             .FSYNC => self.handlers.fsync.use(self, header),
@@ -468,7 +523,3 @@ pub const Fuse = struct {
         _ = try std.posix.writev(self.fd, &iov);
     }
 };
-
-fn directMount() !void {
-    try std.posix.open("/dev/fuse", .{ .CLOEXEC = true, .ACCMODE = .RDWR }, 0);
-}
