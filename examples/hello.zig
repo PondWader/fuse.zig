@@ -179,7 +179,7 @@ fn read(fuse: *fusez.Fuse, header: *const fusez.protocol.HeaderIn, _: *const fus
         @memcpy(out_buf[6 + name_len .. 8 + name_len], "!\n");
 
         return .{
-            .result = fuse.write_response(.SUCCESS, header.unique, out_buf[0 .. 8 + name_len]),
+            .result = fuse.writeResponse(.SUCCESS, header.unique, out_buf[0 .. 8 + name_len]),
         };
     } else if (header.nodeid == 3) { // "name"
         return .{

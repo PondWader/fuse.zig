@@ -17,21 +17,21 @@ pub fn FuseResponse(comptime T: type) type {
         @"error": std.posix.E,
         /// Provides the required body to respond with upon successful processing of the request.
         body: T,
-        /// Should be returned with the value from `Fuse.write_response` if it has been called by the handler to directly write the response.
+        /// Should be returned with the value from `Fuse.writeResponse` if it has been called by the handler to directly write the response.
         result: WriteError!void,
 
         inline fn write(self: @This(), fuse: *Fuse, unique: u64) !void {
             switch (self) {
-                .@"error" => |*errno| try fuse.write_response(errno.*, unique, &.{}),
+                .@"error" => |*errno| try fuse.writeResponse(errno.*, unique, &.{}),
                 .body => |*b| {
                     if (T == void) {
-                        try fuse.write_response(.SUCCESS, unique, &.{});
+                        try fuse.writeResponse(.SUCCESS, unique, &.{});
                     } else if (std.meta.hasMethod(T, "toBuf")) {
-                        try fuse.write_response(.SUCCESS, unique, b.*.toBuf());
+                        try fuse.writeResponse(.SUCCESS, unique, b.*.toBuf());
                     } else if (T == []u8 or T == []const u8) {
-                        try fuse.write_response(.SUCCESS, unique, b.*);
+                        try fuse.writeResponse(.SUCCESS, unique, b.*);
                     } else {
-                        try fuse.write_response(.SUCCESS, unique, std.mem.asBytes(b));
+                        try fuse.writeResponse(.SUCCESS, unique, std.mem.asBytes(b));
                     }
                 },
                 .result => |*e| {
@@ -52,24 +52,24 @@ pub fn FuseHandlerNoResponse(comptime Request: type) type {
         handler: ?*const handler = null,
 
         inline fn use(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn) void {
-            if (self.handler) |handler_fn| {
-                handler_fn(fuse, header);
+            if (self.handler) |handlerFn| {
+                handlerFn(fuse, header);
             }
         }
 
-        inline fn use_with_body(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn, body: []u8) void {
-            if (self.handler) |handler_fn| {
+        inline fn useWithBody(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn, body: []u8) void {
+            if (self.handler) |handlerFn| {
                 if (std.meta.hasFn(Request, "fromBuf")) {
-                    handler_fn(fuse, header, &Request.fromBuf(body));
+                    handlerFn(fuse, header, &Request.fromBuf(body));
                 } else {
-                    handler_fn(fuse, header, @alignCast(@ptrCast(body)));
+                    handlerFn(fuse, header, @alignCast(@ptrCast(body)));
                 }
             }
         }
 
-        inline fn use_with_request(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn, request: *const Request) void {
-            if (self.handler) |handler_fn| {
-                handler_fn(fuse, header, request);
+        inline fn useWithRequest(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn, request: *const Request) void {
+            if (self.handler) |handlerFn| {
+                handlerFn(fuse, header, request);
             }
         }
     };
@@ -85,8 +85,8 @@ pub fn FuseHandler(comptime Request: type, comptime Response: type) type {
         handler: ?*const handler = null,
 
         inline fn use(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn) !void {
-            if (self.handler) |handler_fn| {
-                return handler_fn(fuse, header).write(fuse, header.unique);
+            if (self.handler) |handlerFn| {
+                return handlerFn(fuse, header).write(fuse, header.unique);
             } else {
                 const res = FuseResponse(void){
                     .@"error" = .NOSYS,
@@ -95,12 +95,12 @@ pub fn FuseHandler(comptime Request: type, comptime Response: type) type {
             }
         }
 
-        inline fn use_with_body(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn, body: []u8) !void {
-            if (self.handler) |handler_fn| {
+        inline fn useWithBody(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn, body: []u8) !void {
+            if (self.handler) |handlerFn| {
                 if (std.meta.hasFn(Request, "fromBuf")) {
-                    return handler_fn(fuse, header, &Request.fromBuf(body)).write(fuse, header.unique);
+                    return handlerFn(fuse, header, &Request.fromBuf(body)).write(fuse, header.unique);
                 } else {
-                    return handler_fn(fuse, header, @alignCast(@ptrCast(body))).write(fuse, header.unique);
+                    return handlerFn(fuse, header, @alignCast(@ptrCast(body))).write(fuse, header.unique);
                 }
             } else {
                 const res = FuseResponse(void){
@@ -110,9 +110,9 @@ pub fn FuseHandler(comptime Request: type, comptime Response: type) type {
             }
         }
 
-        inline fn use_with_request(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn, request: *const Request) !void {
-            if (self.handler) |handler_fn| {
-                return handler_fn(fuse, header, request).write(fuse, header.unique);
+        inline fn useWithRequest(self: @This(), fuse: *Fuse, header: *const protocol.HeaderIn, request: *const Request) !void {
+            if (self.handler) |handlerFn| {
+                return handlerFn(fuse, header, request).write(fuse, header.unique);
             } else {
                 const res = FuseResponse(void){
                     .@"error" = .NOSYS,
@@ -155,7 +155,7 @@ pub const MessageHandlers = struct {
     removexattr: FuseHandler(void, void) = .{},
     flush: FuseHandler(protocol.FlushIn, void) = .{},
     /// init has a default handler which you may override. This handler will apply certain MountOptions so if you override it, be aware the behaviour may change.
-    init: FuseHandler(protocol.InitIn, protocol.InitOut) = .{ .handler = init_handler },
+    init: FuseHandler(protocol.InitIn, protocol.InitOut) = .{ .handler = initHandler },
     opendir: FuseHandler(protocol.OpenIn, protocol.OpenOut) = .{},
     readdir: FuseHandler(protocol.ReadIn, protocol.DirEntryList) = .{},
     releasedir: FuseHandler(protocol.ReleaseIn, void) = .{},
@@ -178,7 +178,7 @@ pub const MessageHandlers = struct {
     lseek: FuseHandler(void, void) = .{},
     copy_file_range: FuseHandler(void, void) = .{},
 
-    fn init_handler(fuse: *Fuse, _: *const protocol.HeaderIn, msg: *const protocol.InitIn) FuseResponse(protocol.InitOut) {
+    fn initHandler(fuse: *Fuse, _: *const protocol.HeaderIn, msg: *const protocol.InitIn) FuseResponse(protocol.InitOut) {
         if (msg.major != FUSE_KERNEL_VERSION or msg.minor < FUSE_KERNEL_MIN_MINOR_VERSION) {
             return .{
                 .@"error" = .IO,
@@ -416,13 +416,13 @@ pub const Fuse = struct {
     pub fn startWithBuf(self: *@This(), buf: []u8) !void {
         while (true) {
             const res = try std.posix.read(self.fd, buf);
-            try self.handle_buf(buf[0..res]);
+            try self.handleBuf(buf[0..res]);
         }
     }
 
     /// Used to handle data read from the file descriptor.
     /// You should use this if you wish to implement your own reader/event loop for reading from the fuse file handle. The `buf` slice should be the size of the data read.
-    pub fn handle_buf(self: *@This(), buf: []u8) !void {
+    pub fn handleBuf(self: *@This(), buf: []u8) !void {
         std.debug.assert(buf.len >= @sizeOf(protocol.HeaderIn));
 
         const header: *protocol.HeaderIn = @alignCast(std.mem.bytesAsValue(protocol.HeaderIn, buf));
@@ -434,9 +434,9 @@ pub const Fuse = struct {
         const body = buf[msg_start..header.len];
 
         try switch (opcode) {
-            .LOOKUP => self.handlers.lookup.use_with_body(self, header, body),
+            .LOOKUP => self.handlers.lookup.useWithBody(self, header, body),
             .FORGET => self.handlers.forget.use(self, header),
-            .GETATTR => self.handlers.getattr.use_with_body(self, header, body),
+            .GETATTR => self.handlers.getattr.useWithBody(self, header, body),
             .SETATTR => self.handlers.setattr.use(self, header),
             .READLINK => self.handlers.readlink.use(self, header),
             .SYMLINK => self.handlers.symlink.use(self, header),
@@ -446,34 +446,34 @@ pub const Fuse = struct {
             .RMDIR => self.handlers.rmdir.use(self, header),
             .RENAME => self.handlers.rename.use(self, header),
             .LINK => self.handlers.link.use(self, header),
-            .OPEN => self.handlers.open.use_with_body(self, header, body),
-            .READ => self.handlers.read.use_with_body(self, header, body),
+            .OPEN => self.handlers.open.useWithBody(self, header, body),
+            .READ => self.handlers.read.useWithBody(self, header, body),
             .WRITE => blk: {
                 const request: WriteRequest = .{
                     .msg = @alignCast(@ptrCast(body)),
                     .payload = buf[@sizeOf(protocol.HeaderIn) + @sizeOf(protocol.WriteIn) ..],
                 };
-                break :blk self.handlers.write.use_with_request(self, header, &request);
+                break :blk self.handlers.write.useWithRequest(self, header, &request);
             },
             .STATFS => self.handlers.statfs.use(self, header),
-            .RELEASE => self.handlers.release.use_with_body(self, header, body),
+            .RELEASE => self.handlers.release.useWithBody(self, header, body),
             .FSYNC => self.handlers.fsync.use(self, header),
             .SETXATTR => self.handlers.setxattr.use(self, header),
             .GETXATTR => self.handlers.getxattr.use(self, header),
             .LISTXATTR => self.handlers.listxattr.use(self, header),
             .REMOVEXATTR => self.handlers.removexattr.use(self, header),
-            .FLUSH => self.handlers.flush.use_with_body(self, header, body),
-            .INIT => self.handlers.init.use_with_body(self, header, body),
-            .OPENDIR => self.handlers.opendir.use_with_body(self, header, body),
-            .READDIR => self.handlers.readdir.use_with_body(self, header, body),
-            .RELEASEDIR => self.handlers.releasedir.use_with_body(self, header, body),
+            .FLUSH => self.handlers.flush.useWithBody(self, header, body),
+            .INIT => self.handlers.init.useWithBody(self, header, body),
+            .OPENDIR => self.handlers.opendir.useWithBody(self, header, body),
+            .READDIR => self.handlers.readdir.useWithBody(self, header, body),
+            .RELEASEDIR => self.handlers.releasedir.useWithBody(self, header, body),
             .FSYNCDIR => self.handlers.fsyncdir.use(self, header),
             .GETLK => self.handlers.getlk.use(self, header),
             .SETLK => self.handlers.setlk.use(self, header),
             .SETLKW => self.handlers.setlkw.use(self, header),
-            .ACCESS => self.handlers.access.use_with_body(self, header, body),
-            .CREATE => self.handlers.create.use_with_body(self, header, body),
-            .INTERRUPT => self.handlers.interrupt.use_with_body(self, header, body),
+            .ACCESS => self.handlers.access.useWithBody(self, header, body),
+            .CREATE => self.handlers.create.useWithBody(self, header, body),
+            .INTERRUPT => self.handlers.interrupt.useWithBody(self, header, body),
             .BMAP => self.handlers.bmap.use(self, header),
             .DESTROY => self.handlers.destroy.use(self, header),
             .IOCTL => self.handlers.ioctl.use(self, header),
@@ -481,7 +481,7 @@ pub const Fuse = struct {
             .NOTIFY_REPLY => self.handlers.notify_reply.use(self, header),
             .BATCH_FORGET => self.handlers.batch_forget.use(self, header),
             .FALLOCATE => self.handlers.fallocate.use(self, header),
-            .READDIRPLUS => self.handlers.readdirplus.use_with_body(self, header, body),
+            .READDIRPLUS => self.handlers.readdirplus.useWithBody(self, header, body),
             .RENAME2 => self.handlers.rename2.use(self, header),
             .LSEEK => self.handlers.lseek.use(self, header),
             .COPY_FILE_RANGE => self.handlers.copy_file_range.use(self, header),
@@ -494,7 +494,7 @@ pub const Fuse = struct {
         };
     }
 
-    pub fn write_response(self: *@This(), err: std.posix.E, unique: u64, data: []const u8) WriteError!void {
+    pub fn writeResponse(self: *@This(), err: std.posix.E, unique: u64, data: []const u8) WriteError!void {
         const errno = @as(i32, @intFromEnum(err));
 
         var header = protocol.HeaderOut{
