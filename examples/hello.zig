@@ -194,24 +194,23 @@ fn read(fuse: *fusez.Fuse, header: *const fusez.protocol.HeaderIn, _: *const fus
 
 fn write(_: *fusez.Fuse, header: *const fusez.protocol.HeaderIn, req: *const fusez.WriteRequest) fusez.FuseResponse(fusez.protocol.WriteOut) {
     if (header.nodeid != 3) return .{ .@"error" = .ROFS };
+    // Don't support offsets since it doesn't work well with trimming
+    if (req.msg.offset != 0) return .{ .@"error" = .INVAL };
 
     var new_name = req.payload[0..req.msg.size];
     new_name = std.mem.trim(u8, new_name, &.{ ' ', '\t', '\n' });
 
-    const write_size = new_name.len;
-    const write_start = req.msg.offset;
-    const write_end = write_start + write_size;
-
-    if (write_end > name_buf.len) {
-        return .{ .@"error" = .NOSPC };
+    // Truncate the name if necessary
+    if (new_name.len > name_buf.len) {
+        new_name = new_name[0..name_buf.len];
     }
 
-    @memcpy(name_buf[write_start..write_end], new_name[write_start..write_end]);
-    name_len = write_end;
+    @memcpy(name_buf[0..new_name.len], new_name);
+    name_len = new_name.len;
 
     return .{
         .body = .{
-            .size = @intCast(write_size),
+            .size = req.msg.size,
         },
     };
 }
