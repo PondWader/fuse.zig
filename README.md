@@ -11,3 +11,5 @@ Create and mount userspace file systems in Linux with Zig. Learn more about FUSE
 ### Examples
 
 [hello.zig](./examples/hello.zig) - a simple "Hello world" file system with read and write examples.
+
+To run an example, clone this repository and run `zig build example-<name>` e.g. `zig build example-hello`.
