@@ -369,7 +369,7 @@ pub const Fuse = struct {
 
         var mount_options = options;
         // Default to 3/4 of max_background as the congest_threshold if it's invalid.
-        if (mount_options.congestion_threshold > mount_options.congestion_threshold) {
+        if (mount_options.congestion_threshold > mount_options.max_background) {
             mount_options.congestion_threshold = mount_options.max_background * 3 / 4;
         }
 
