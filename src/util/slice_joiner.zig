@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 
 /// Joins multiple slices with a single allocation.
 ///
-/// `size` MUST be less than the total number of slices that will be appended.
+/// `capacity` MUST be less than the total number of slices that will be appended.
 pub fn SliceJoiner(comptime T: type, comptime capacity: comptime_int) type {
     return struct {
         slices: [capacity][]const T = undefined,
