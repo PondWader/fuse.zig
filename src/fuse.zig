@@ -62,7 +62,7 @@ pub fn FuseHandlerNoResponse(comptime Request: type) type {
                 if (std.meta.hasFn(Request, "fromBuf")) {
                     handlerFn(fuse, header, &Request.fromBuf(body));
                 } else {
-                    handlerFn(fuse, header, @alignCast(@ptrCast(body)));
+                    handlerFn(fuse, header, @ptrCast(@alignCast(body)));
                 }
             }
         }
@@ -100,7 +100,7 @@ pub fn FuseHandler(comptime Request: type, comptime Response: type) type {
                 if (std.meta.hasFn(Request, "fromBuf")) {
                     return handlerFn(fuse, header, &Request.fromBuf(body)).write(fuse, header.unique);
                 } else {
-                    return handlerFn(fuse, header, @alignCast(@ptrCast(body))).write(fuse, header.unique);
+                    return handlerFn(fuse, header, @ptrCast(@alignCast(body))).write(fuse, header.unique);
                 }
             } else {
                 const res = FuseResponse(void){
@@ -316,7 +316,7 @@ pub const MountOptions = struct {
         // Use a stack buffer to format the max_read=<size> option
         var buf: [19]u8 = undefined;
         @memcpy(buf[0..9], "max_read=");
-        const size = std.fmt.formatIntBuf(buf[9..], self.max_read, 10, .lower, .{});
+        const size = std.fmt.printInt(buf[9..], self.max_read, 10, .lower, .{});
         joiner.append(buf[0 .. 9 + size]);
 
         return joiner.result(allocator);
@@ -450,7 +450,7 @@ pub const Fuse = struct {
             .READ => self.handlers.read.useWithBody(self, header, body),
             .WRITE => blk: {
                 const request: WriteRequest = .{
-                    .msg = @alignCast(@ptrCast(body)),
+                    .msg = @ptrCast(@alignCast(body)),
                     .payload = buf[@sizeOf(protocol.HeaderIn) + @sizeOf(protocol.WriteIn) ..],
                 };
                 break :blk self.handlers.write.useWithRequest(self, header, &request);

@@ -1,8 +1,8 @@
 .{
     .name = .fusez,
-    .version = "0.0.0",
+    .version = "0.0.1",
     .fingerprint = 0x725cf49789d10c22, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.15.0-dev.929+31e46be74",
+    .minimum_zig_version = "0.15.1",
     .dependencies = .{},
     .paths = .{
         "build.zig",

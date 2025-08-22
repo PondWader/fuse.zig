@@ -68,6 +68,8 @@ pub fn build(b: *std.Build) !void {
         if (b.args) |args| {
             example_run_cmd.addArgs(args);
         }
+
+        example_run_step.dependOn(&b.addInstallArtifact(example_exe, .{}).step);
     }
 }
 
@@ -76,8 +78,8 @@ fn buildExamples(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) ![]const *std.Build.Step.Compile {
-    var steps = std.ArrayList(*std.Build.Step.Compile).init(b.allocator);
-    defer steps.deinit();
+    var steps = std.ArrayList(*std.Build.Step.Compile).empty;
+    defer steps.deinit(b.allocator);
 
     var dir = try std.fs.cwd().openDir(try b.build_root.join(
         b.allocator,
@@ -113,8 +115,8 @@ fn buildExamples(
         exe.root_module.addImport("fusez", b.modules.get("fusez").?);
 
         // Store the mapping
-        try steps.append(exe);
+        try steps.append(b.allocator, exe);
     }
 
-    return try steps.toOwnedSlice();
+    return try steps.toOwnedSlice(b.allocator);
 }
