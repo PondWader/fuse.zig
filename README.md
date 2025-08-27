@@ -13,3 +13,22 @@ Create and mount userspace file systems in Linux with Zig. Learn more about FUSE
 [hello.zig](./examples/hello.zig) - a simple "Hello world" file system with read and write examples.
 
 To run an example, clone this repository and run `zig build example-<name> -- <args>` e.g. `mkdir /tmp/hello && zig build example-hello -- /tmp/hello`.
+
+## Installing
+
+1. Fetch fuse.zig:
+
+```
+zig fetch --save "git+https://github.com/PondWader/fuse.zig#main"
+```
+
+2. Add a `fusez` import in your `build.zig`:
+
+```zig
+const fusez = b.dependency("fusez", .{
+    .target = target,
+    .optimize = optimize,
+});
+
+exe.root_module.addImport("fusez", fusez.module("fusez"));
+```
