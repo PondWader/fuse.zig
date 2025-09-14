@@ -1,6 +1,6 @@
 const std = @import("std");
 pub const protocol = @import("./protocol.zig");
-const fusermount3 = @import("./fusermount3.zig");
+pub const fusermount3 = @import("./fusermount3.zig");
 const SliceJoiner = @import("./util/slice_joiner.zig").SliceJoiner;
 
 /// This is the minimum size that any buffers reading from the fuse file handle should be.

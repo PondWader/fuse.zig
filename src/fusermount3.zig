@@ -2,6 +2,7 @@ const std = @import("std");
 const posix = std.posix;
 const fusez = @import("./fuse.zig");
 
+/// Creates a FUSE filesystem at a path and returns the file handle for the /dev/fuse connection. The allocator provided should be an arena.
 pub fn mount(arena: std.mem.Allocator, mount_point: []const u8, options: fusez.MountOptions) !posix.fd_t {
     // Open unix socket for receiving fuse file handle
     var fd: [2]posix.fd_t = undefined;
@@ -80,6 +81,7 @@ pub fn mount(arena: std.mem.Allocator, mount_point: []const u8, options: fusez.M
     return error.UnexpectedMessage;
 }
 
+/// Unmounts a filesystem at a path. The allocator provided should be an arena.
 pub fn unmount(arena: std.mem.Allocator, mount_point: []const u8) !void {
     var env_map = std.process.EnvMap.init(arena);
     try spawn(arena, -1, &env_map, &.{ "-u", mount_point });
