@@ -402,10 +402,7 @@ pub const Fuse = struct {
     /// Starts the read loop of the fuse device file handle.
     /// The `allocator` property (automatically set by calling `mount`) must not be null so a read buffer can be allocated. Otherwise, you should call `startWithBuf` and pass your own buffer.
     pub fn start(self: *@This()) !void {
-        // The read buffer must be at least MIN_READ_BUFFER_SIZE or the size of max write + HeaderIn + WriteIn, which is greater.
-        const buf_size = @max(MIN_READ_BUFFER_SIZE, self.options.max_write + @sizeOf(protocol.HeaderIn) + @sizeOf(protocol.WriteIn));
-
-        const buf = try self.allocator.?.alignedAlloc(u8, .@"64", buf_size);
+        const buf = try self.allocator.?.alignedAlloc(u8, .@"64", self.getReadBufferSize());
         defer self.allocator.?.free(buf);
 
         return self.startWithBuf(buf);
@@ -521,5 +518,11 @@ pub const Fuse = struct {
         };
 
         _ = try std.posix.writev(self.fd, &iov);
+    }
+
+    // Gets the size of the buffer that should be allocated for reading data from the open /dev/fuse file descriptor.
+    pub fn getReadBufferSize(self: *Fuse) usize {
+        // The read buffer must be at least MIN_READ_BUFFER_SIZE or the size of max write + HeaderIn + WriteIn, whichever is greater.
+        return @max(MIN_READ_BUFFER_SIZE, self.options.max_write + @sizeOf(protocol.HeaderIn) + @sizeOf(protocol.WriteIn));
     }
 };
